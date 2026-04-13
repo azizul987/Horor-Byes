@@ -7,136 +7,251 @@ extends CharacterBody2D
 @export var jarak_sampai: float = 4.0
 @export var radius_dengar: float = 180.0
 
-@onready var _Center_A: Marker2D = $"../Ruang A"
-@onready var _Center_B: Marker2D = $"../Ruang B"
-@onready var _Center_C: Marker2D = $"../Ruang C"
-@onready var _Center_Lorong: Marker2D = $"../Lorong"
+@export var label_debug: Label
+@export var kamera: Camera2D
+@export var debug_manual_move: bool = false
+@export var debug_move_speed: float = 120.0
+@export var zoom_step: float = 0.1
+@export var zoom_min: float = 0.5
+@export var zoom_max: float = 2.0
+
+@onready var markers: Dictionary = {
+	"A": ($"../Ruang A" as Marker2D).global_position,
+	"B": ($"../Ruang B" as Marker2D).global_position,
+	"C": ($"../Ruang C" as Marker2D).global_position,
+	"lorong": ($"../Lorong" as Marker2D).global_position,
+}
+
+@onready var sprite: AnimatedSprite2D = $Musuh
+var facing_direction := "down"
 
 enum Mode { PATROLI, SELIDIKI, KEJAR }
 var mode: Mode = Mode.PATROLI
 
+var patrol_keys: Array = ["A", "B", "C", "lorong"]
 var patrol_index: int = 0
-var patrol_points: Array[Marker2D] = []
 
 var path: Array[Vector2] = []
 var last_pemain_cell: Vector2i = Vector2i(-9999, -9999)
 var last_npc_cell: Vector2i = Vector2i(-9999, -9999)
 
-func _ready() -> void:
-	patrol_points = [_Center_A, _Center_B, _Center_C, _Center_Lorong]
+var _last_prior: Dictionary = {}
+var _last_likelihood: Dictionary = {}
+var _last_posterior: Dictionary = {}
 
-# ─────────────────────────────────────────
-# LOOP UTAMA
-# ─────────────────────────────────────────
+
+func _ready() -> void:
+	if label_debug:
+		label_debug.visible = true
+
+	print("=== DEBUG CONTROL ===")
+	print("W A S D = gerak manual NPC saat debug_manual_move = true")
+	print("Q = zoom out kamera")
+	print("E = zoom in kamera")
+	print("Z dipakai oleh player untuk hide")
+
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_Q:
+			ubah_zoom(zoom_step)
+		elif event.keycode == KEY_E:
+			ubah_zoom(-zoom_step)
+
 
 func _physics_process(delta: float) -> void:
 	if pemain == null or tilemap == null:
 		return
 
-	var pemain_cell = world_to_cell(pemain.global_position)
-	var npc_cell    = world_to_cell(global_position)
+	if debug_manual_move:
+		_debug_move_manual(delta)
+		_update_mode_and_path()
+		_update_label()
+		return
 
-	# Hitung ulang hanya saat ada yang berpindah tile
+	var pemain_cell = world_to_cell(pemain.global_position)
+	var npc_cell = world_to_cell(global_position)
+
 	if pemain_cell != last_pemain_cell or npc_cell != last_npc_cell:
 		last_pemain_cell = pemain_cell
-		last_npc_cell    = npc_cell
+		last_npc_cell = npc_cell
 		_update_mode_and_path()
 
-	# Gerak tile per tile
+	var is_moving = false
+	var move_dir = Vector2.ZERO
+
 	if path.size() > 0:
 		var target = path[0]
+		move_dir = (target - global_position).normalized()
+
 		global_position = global_position.move_toward(target, speed * delta)
+		is_moving = true
+
 		if global_position.distance_to(target) < jarak_sampai:
 			path.remove_at(0)
 			if path.size() == 0:
 				global_position = target
-	else:
-		if mode == Mode.PATROLI:
-			patrol_index = (patrol_index + 1) % patrol_points.size()
-			_update_mode_and_path()
+	elif mode == Mode.PATROLI:
+		patrol_index = (patrol_index + 1) % patrol_keys.size()
+		_update_mode_and_path()
 
-# ─────────────────────────────────────────
-# LOGIKA MODE
-# ─────────────────────────────────────────
+	if is_moving and move_dir != Vector2.ZERO:
+		update_facing_direction(move_dir)
+		play_walk_animation()
+	else:
+		play_idle_animation()
+
+	_update_label()
+
+
+func _debug_move_manual(delta: float) -> void:
+	var arah := Vector2.ZERO
+
+	if Input.is_key_pressed(KEY_W):
+		arah.y -= 1.0
+	if Input.is_key_pressed(KEY_S):
+		arah.y += 1.0
+	if Input.is_key_pressed(KEY_A):
+		arah.x -= 1.0
+	if Input.is_key_pressed(KEY_D):
+		arah.x += 1.0
+
+	arah = arah.normalized()
+	velocity = arah * debug_move_speed
+	move_and_slide()
+
+	if arah != Vector2.ZERO:
+		update_facing_direction(arah)
+		play_walk_animation()
+	else:
+		play_idle_animation()
+
+
+func ubah_zoom(delta_zoom: float) -> void:
+	if kamera == null:
+		return
+
+	var new_zoom_x = clamp(kamera.zoom.x + delta_zoom, zoom_min, zoom_max)
+	var new_zoom_y = clamp(kamera.zoom.y + delta_zoom, zoom_min, zoom_max)
+	kamera.zoom = Vector2(new_zoom_x, new_zoom_y)
+
+	print("Zoom kamera: ", kamera.zoom)
+
 
 func _update_mode_and_path() -> void:
-	var jarak = global_position.distance_to(pemain.global_position)
 	var target_world: Vector2
 
-	if jarak <= jarak_kejar:
+	var pemain_sembunyi = false
+	if "is_hidden" in pemain:
+		pemain_sembunyi = pemain.is_hidden
+
+	if not pemain_sembunyi and global_position.distance_to(pemain.global_position) <= jarak_kejar:
 		mode = Mode.KEJAR
 		target_world = pemain.global_position
-
 	else:
-		# Teorema Bayes: P(lokasi|bukti) = P(bukti|lokasi) * P(lokasi) / P(bukti)
-		var prior      = bayes_prior()
-		var likelihood = bayes_likelihood()
-		var posterior  = bayes_posterior(prior, likelihood)
-		var lokasi     = bayes_tertinggi(posterior)
+		_last_prior = bayes_prior()
+		_last_likelihood = bayes_likelihood(pemain_sembunyi)
+		_last_posterior = bayes_posterior(_last_prior, _last_likelihood)
+		var lokasi = bayes_tertinggi(_last_posterior)
 
-		# Hanya SELIDIKI jika ada sinyal nyata DAN posterior cukup tinggi
-		if bayes_ada_sinyal(likelihood) and posterior.get(lokasi, 0.0) >= 0.70:
+		if bayes_ada_sinyal(_last_likelihood) and _last_posterior[lokasi] >= 0.70:
 			mode = Mode.SELIDIKI
-			target_world = _marker_pos(lokasi)
+			target_world = markers[lokasi]
 		else:
 			mode = Mode.PATROLI
-			target_world = patrol_points[patrol_index].global_position
+			target_world = markers[patrol_keys[patrol_index]]
 
-	var goal = get_nearest_free_cell(world_to_cell(target_world))
-	path = bfs_path(global_position, cell_to_world(goal))
+	path = bfs_path(global_position, cell_to_world(get_nearest_free_cell(world_to_cell(target_world))))
 
-# ─────────────────────────────────────────
-# TEOREMA BAYES
-# ─────────────────────────────────────────
 
-# P(lokasi) — lokasi patroli aktif diberi bobot lebih tinggi
+func _update_label() -> void:
+	if label_debug == null:
+		return
+
+	var jarak = global_position.distance_to(pemain.global_position)
+	var mode_nama = Mode.keys()[mode]
+
+	var terdekat_nama := ""
+	var terdekat_jarak := INF
+	for lok in markers.keys():
+		var d = pemain.global_position.distance_to(markers[lok])
+		if d < terdekat_jarak:
+			terdekat_jarak = d
+			terdekat_nama = lok
+
+	var teks := "MODE: %s\n" % mode_nama
+	teks += "Debug Manual Move: %s\n" % str(debug_manual_move)
+	teks += "Pos NPC: (%.0f, %.0f)\n" % [global_position.x, global_position.y]
+	teks += "Pos Player: (%.0f, %.0f)\n" % [pemain.global_position.x, pemain.global_position.y]
+	teks += "Jarak NPC ke Pemain: %.0f px\n" % jarak
+	teks += "Pemain paling dekat ke: %s (%.0f px)\n" % [terdekat_nama, terdekat_jarak]
+
+	if kamera != null:
+		teks += "Zoom Kamera: %.2f\n" % kamera.zoom.x
+
+	teks += "\n-- Hipotesis --\n"
+
+	for lok in patrol_keys:
+		var prior = "%.2f" % _last_prior.get(lok, 0.0)
+		var like = "%.2f" % _last_likelihood.get(lok, 0.0)
+		var post = "%.2f" % _last_posterior.get(lok, 0.0)
+		var aktif = " <==" if lok == bayes_tertinggi(_last_posterior) else ""
+		teks += "%s | P: %s  L: %s  Post: %s%s\n" % [lok.rpad(6), prior, like, post, aktif]
+
+	teks += "\nKontrol Debug:\n"
+	teks += "Q/E = zoom out/in\n"
+	teks += "WASD = gerak manual saat debug_manual_move aktif\n"
+	teks += "Z = hide player\n"
+
+	label_debug.text = teks
+
+
 func bayes_prior() -> Dictionary:
 	var prior: Dictionary = {}
 	var total := 0.0
+	var patrol_aktif = patrol_keys[patrol_index]
 
-	for lok in _markers().keys():
-		prior[lok] = 2.0 if lok == _nama_patrol_aktif() else 1.0
+	for lok in markers.keys():
+		prior[lok] = 2.0 if lok == patrol_aktif else 1.0
 		total += prior[lok]
 
 	for lok in prior.keys():
-		prior[lok] /= total  # normalisasi → jumlah = 1
-
+		prior[lok] /= total
 	return prior
 
-# P(bukti|lokasi) — seberapa kuat sinyal suara pemain ke tiap lokasi
-# Likelihood TIDAK harus berjumlah 1, bukan distribusi probabilitas
-func bayes_likelihood() -> Dictionary:
+
+func bayes_likelihood(pemain_sembunyi: bool = false) -> Dictionary:
 	var likelihood: Dictionary = {}
-
-	for lok in _markers().keys():
-		var d = pemain.global_position.distance_to(_markers()[lok])
-		likelihood[lok] = max(0.01, 1.0 - d / radius_dengar)
-
+	for lok in markers.keys():
+		if pemain_sembunyi:
+			likelihood[lok] = 0.01
+		else:
+			var d = pemain.global_position.distance_to(markers[lok])
+			likelihood[lok] = max(0.01, 1.0 - d / radius_dengar)
 	return likelihood
 
-# Cek apakah setidaknya satu lokasi punya sinyal nyata (> floor 0.01)
+
 func bayes_ada_sinyal(likelihood: Dictionary) -> bool:
 	for lok in likelihood.keys():
 		if likelihood[lok] > 0.01:
 			return true
 	return false
 
-# P(lokasi|bukti) — hasil akhir Bayes, dinormalisasi → jumlah = 1
+
 func bayes_posterior(prior: Dictionary, likelihood: Dictionary) -> Dictionary:
 	var posterior: Dictionary = {}
-	var p_bukti := 0.0
+	var total := 0.0
 
 	for lok in prior.keys():
-		posterior[lok] = likelihood.get(lok, 0.01) * prior[lok]
-		p_bukti += posterior[lok]
+		posterior[lok] = prior[lok] * likelihood[lok]
+		total += posterior[lok]
 
-	if p_bukti > 0.0:
+	if total > 0.0:
 		for lok in posterior.keys():
-			posterior[lok] /= p_bukti  # normalisasi → jumlah = 1
-
+			posterior[lok] /= total
 	return posterior
 
-# Ambil lokasi dengan nilai posterior tertinggi
+
 func bayes_tertinggi(posterior: Dictionary) -> String:
 	var best := ""
 	var max_val := -1.0
@@ -146,44 +261,43 @@ func bayes_tertinggi(posterior: Dictionary) -> String:
 			best = lok
 	return best
 
-# ─────────────────────────────────────────
-# HELPER
-# ─────────────────────────────────────────
 
-func _markers() -> Dictionary:
-	return {
-		"A":      _Center_A.global_position,
-		"B":      _Center_B.global_position,
-		"C":      _Center_C.global_position,
-		"lorong": _Center_Lorong.global_position
-	}
+func update_facing_direction(direction: Vector2) -> void:
+	if abs(direction.x) > abs(direction.y):
+		if direction.x > 0:
+			facing_direction = "right"
+		else:
+			facing_direction = "left"
+	else:
+		if direction.y > 0:
+			facing_direction = "down"
+		else:
+			facing_direction = "up"
 
-func _nama_patrol_aktif() -> String:
-	match patrol_index:
-		0: return "A"
-		1: return "B"
-		2: return "C"
-		3: return "lorong"
-	return "A"
 
-func _marker_pos(nama: String) -> Vector2:
-	return _markers().get(nama, global_position)
+func play_walk_animation() -> void:
+	var anim_name := "Walk_" + facing_direction
+	if sprite.animation != anim_name:
+		sprite.play(anim_name)
 
-# ─────────────────────────────────────────
-# BFS PATHFINDING
-# ─────────────────────────────────────────
+
+func play_idle_animation() -> void:
+	var anim_name := "Idle_" + facing_direction
+	if sprite.animation != anim_name:
+		sprite.play(anim_name)
+
 
 func bfs_path(start_world: Vector2, goal_world: Vector2) -> Array[Vector2]:
 	var start = get_nearest_free_cell(world_to_cell(start_world))
-	var goal  = get_nearest_free_cell(world_to_cell(goal_world))
+	var goal = get_nearest_free_cell(world_to_cell(goal_world))
 
 	if start == goal:
 		return []
 
-	var queue:   Array[Vector2i] = [start]
-	var visited: Dictionary = { start: true }
-	var parent:  Dictionary = {}
-	var dirs = [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1)]
+	var queue: Array[Vector2i] = [start]
+	var visited: Dictionary = {start: true}
+	var parent: Dictionary = {}
+	var dirs = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
 
 	while queue.size() > 0:
 		var cur = queue.pop_front()
@@ -194,7 +308,7 @@ func bfs_path(start_world: Vector2, goal_world: Vector2) -> Array[Vector2]:
 			if visited.has(nxt) or is_blocked(nxt):
 				continue
 			visited[nxt] = true
-			parent[nxt]  = cur
+			parent[nxt] = cur
 			queue.append(nxt)
 
 	if not visited.has(goal):
@@ -207,8 +321,8 @@ func bfs_path(start_world: Vector2, goal_world: Vector2) -> Array[Vector2]:
 		if not parent.has(step):
 			break
 		step = parent[step]
-
 	return result
+
 
 func get_nearest_free_cell(target: Vector2i) -> Vector2i:
 	if not is_blocked(target):
@@ -221,6 +335,7 @@ func get_nearest_free_cell(target: Vector2i) -> Vector2i:
 					return c
 	return target
 
+
 func is_blocked(cell: Vector2i) -> bool:
 	if tilemap.get_cell_source_id(cell) == -1:
 		return true
@@ -229,8 +344,10 @@ func is_blocked(cell: Vector2i) -> bool:
 		return true
 	return data.get_custom_data("blocked") == true
 
+
 func world_to_cell(pos: Vector2) -> Vector2i:
-	return tilemap.local_to_map(tilemap.to_local(pos))
+	return tilemap.local_to_map(pos)
+
 
 func cell_to_world(cell: Vector2i) -> Vector2:
 	return tilemap.to_global(tilemap.map_to_local(cell))
