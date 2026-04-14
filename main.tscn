@@ -36,6 +36,7 @@
 [ext_resource type="Texture2D" uid="uid://ctcmxsnltukdd" path="res://Character/Main/Idle/Character_down_idle-Sheet6.png" id="33_0cp0l"]
 [ext_resource type="Script" uid="uid://x8kvl0dyrrf7" path="res://player.gd" id="33_b1qrp"]
 [ext_resource type="Texture2D" uid="uid://byn484x6cvtqr" path="res://Character/Main/Idle/Character_side-left_idle-Sheet6.png" id="34_d2t1y"]
+[ext_resource type="AudioStream" uid="uid://dn1vpmhhqcne4" path="res://Music/door_close.wav" id="35_6iyjs"]
 [ext_resource type="Texture2D" uid="uid://dbk5x1uqwplub" path="res://Character/Main/Idle/Character_side_idle-Sheet6.png" id="35_gngh3"]
 [ext_resource type="Texture2D" uid="uid://cna2be00tt68y" path="res://Character/Main/Idle/Character_up_idle-Sheet6.png" id="36_0n3wm"]
 [ext_resource type="Texture2D" uid="uid://dhw080xvokcxa" path="res://Character/Main/Run/Character_down_run-Sheet6.png" id="37_qnost"]
@@ -45,6 +46,7 @@
 [ext_resource type="Texture2D" uid="uid://dnt7fqj3wlqtd" path="res://32x32 textures (32).png" id="42_0cp0l"]
 [ext_resource type="Script" uid="uid://csc64ltrgc04d" path="res://camera_2d.gd" id="42_gngh3"]
 [ext_resource type="Script" uid="uid://cwtj4l2t7byrh" path="res://point_light_2d.gd" id="43_d2t1y"]
+[ext_resource type="AudioStream" uid="uid://mht0rhn3n422" path="res://Music/digital_footstep_grass_4.wav" id="44_abqjc"]
 [ext_resource type="Texture2D" uid="uid://dfxxfhbskfvhs" path="res://Objects/Vehicles/Normal/Car_1/Car_1_Blue.png" id="46_blkrb"]
 [ext_resource type="Texture2D" uid="uid://uk0ephc5mco3" path="res://Objects/Vehicles/Rust/Car_2_Rust_Upsidedown/Car_2_Rust_Blue_Upsidedown.png" id="47_abqjc"]
 [ext_resource type="Texture2D" uid="uid://dyii1652jtxaf" path="res://Objects/Vehicles/Overgrown/Car_1_Overgrown/Bleak-Yellow/Car_1_Overgrown_Bleak-Yellow_Blue.png" id="48_6iyjs"]
@@ -3075,6 +3077,10 @@ blend_mode = 2
 position = Vector2(398, 272)
 script = ExtResource("33_b1qrp")
 
+[node name="SUara_Jebakan" type="AudioStreamPlayer2D" parent="Player" unique_id=1612114227]
+position = Vector2(-321, -248)
+stream = ExtResource("35_6iyjs")
+
 [node name="Player" type="AnimatedSprite2D" parent="Player" unique_id=1281240717]
 sprite_frames = SubResource("SpriteFrames_tttfs")
 animation = &"Walk_up"
@@ -3085,6 +3091,10 @@ shape = SubResource("CircleShape2D_facbu")
 [node name="Camera2D" type="Camera2D" parent="Player" unique_id=2097947312]
 zoom = Vector2(0.725, 0.725)
 script = ExtResource("42_gngh3")
+
+[node name="Step" type="AudioStreamPlayer2D" parent="Player" unique_id=492154934]
+position = Vector2(-201, -130)
+stream = ExtResource("44_abqjc")
 
 [node name="Ruang A" type="Marker2D" parent="." unique_id=2036394463]
 position = Vector2(12, -26)

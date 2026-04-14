@@ -14,6 +14,9 @@ extends CharacterBody2D
 @export var zoom_min: float = 0.5
 @export var zoom_max: float = 2.0
 
+
+@onready var s_uara_jebakan: AudioStreamPlayer2D =$"../Player/SUara_Jebakan"
+
 @onready var markers: Dictionary = {
 	"A": ($"../Ruang A" as Marker2D).global_position,
 	"B": ($"../Ruang B" as Marker2D).global_position,
@@ -24,8 +27,11 @@ extends CharacterBody2D
 @onready var sprite: AnimatedSprite2D = $Musuh
 var facing_direction := "down"
 
-enum Mode { PATROLI, SELIDIKI}
+enum Mode { PATROLI, SELIDIKI, KEJAR }
 var mode: Mode = Mode.PATROLI
+
+@export var radius_kejar: float = 80.0
+@export var speed_kejar: float = 100.0
 
 var patrol_keys: Array = ["A", "B", "C", "lorong"]
 var patrol_index: int = 0
@@ -37,6 +43,8 @@ var last_npc_cell: Vector2i = Vector2i(-9999, -9999)
 var _last_prior: Dictionary = {}
 var _last_likelihood: Dictionary = {}
 var _last_posterior: Dictionary = {}
+
+var _jebakan_sudah_bunyi: bool = false
 
 
 func _ready() -> void:
@@ -76,6 +84,8 @@ func _physics_process(delta: float) -> void:
 		last_npc_cell = npc_cell
 		_update_mode_and_path()
 
+	var current_speed = speed_kejar if mode == Mode.KEJAR else speed
+
 	var is_moving = false
 	var move_dir = Vector2.ZERO
 
@@ -83,7 +93,7 @@ func _physics_process(delta: float) -> void:
 		var target = path[0]
 		move_dir = (target - global_position).normalized()
 
-		global_position = global_position.move_toward(target, speed * delta)
+		global_position = global_position.move_toward(target, current_speed * delta)
 		is_moving = true
 
 		if global_position.distance_to(target) < jarak_sampai:
@@ -144,18 +154,34 @@ func _update_mode_and_path() -> void:
 	if "is_hidden" in pemain:
 		pemain_sembunyi = pemain.is_hidden
 
-
 	_last_prior = bayes_prior()
 	_last_likelihood = bayes_likelihood(pemain_sembunyi)
 	_last_posterior = bayes_posterior(_last_prior, _last_likelihood)
 	var lokasi = bayes_tertinggi(_last_posterior)
 
-	if bayes_ada_sinyal(_last_likelihood) and _last_posterior[lokasi] >= 0.70:
+	var jarak_ke_pemain = global_position.distance_to(pemain.global_position)
+
+	# Prioritas 1: KEJAR
+	if not pemain_sembunyi and jarak_ke_pemain <= radius_kejar:
+		mode = Mode.KEJAR
+		target_world = pemain.global_position
+		if not _jebakan_sudah_bunyi:
+			s_uara_jebakan.play()
+			_jebakan_sudah_bunyi = true
+
+	# Prioritas 2: SELIDIKI
+	elif bayes_ada_sinyal(_last_likelihood) and _last_posterior[lokasi] >= 0.70:
 		mode = Mode.SELIDIKI
 		target_world = markers[lokasi]
+		if not _jebakan_sudah_bunyi:
+			s_uara_jebakan.play()
+			_jebakan_sudah_bunyi = true
+
+	# Prioritas 3: PATROLI
 	else:
 		mode = Mode.PATROLI
 		target_world = markers[patrol_keys[patrol_index]]
+		_jebakan_sudah_bunyi = false
 
 	path = bfs_path(global_position, cell_to_world(get_nearest_free_cell(world_to_cell(target_world))))
 
@@ -277,10 +303,12 @@ func play_walk_animation() -> void:
 		sprite.play(anim_name)
 
 
+
 func play_idle_animation() -> void:
 	var anim_name := "Idle_" + facing_direction
 	if sprite.animation != anim_name:
 		sprite.play(anim_name)
+
 
 
 func bfs_path(start_world: Vector2, goal_world: Vector2) -> Array[Vector2]:
@@ -311,12 +339,12 @@ func bfs_path(start_world: Vector2, goal_world: Vector2) -> Array[Vector2]:
 		return []
 
 	var result: Array[Vector2] = []
-	var step = goal
-	while step != start:
-		result.push_front(cell_to_world(step))
-		if not parent.has(step):
+	var cur_step = goal
+	while cur_step != start:
+		result.push_front(cell_to_world(cur_step))
+		if not parent.has(cur_step):
 			break
-		step = parent[step]
+		cur_step = parent[cur_step]
 	return result
 
 
