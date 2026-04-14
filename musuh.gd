@@ -3,7 +3,6 @@ extends CharacterBody2D
 @export var pemain: CharacterBody2D
 @export var tilemap: TileMapLayer
 @export var speed: float = 55.0
-@export var jarak_kejar: float = 70.0
 @export var jarak_sampai: float = 4.0
 @export var radius_dengar: float = 180.0
 
@@ -25,7 +24,7 @@ extends CharacterBody2D
 @onready var sprite: AnimatedSprite2D = $Musuh
 var facing_direction := "down"
 
-enum Mode { PATROLI, SELIDIKI, KEJAR }
+enum Mode { PATROLI, SELIDIKI}
 var mode: Mode = Mode.PATROLI
 
 var patrol_keys: Array = ["A", "B", "C", "lorong"]
@@ -145,21 +144,18 @@ func _update_mode_and_path() -> void:
 	if "is_hidden" in pemain:
 		pemain_sembunyi = pemain.is_hidden
 
-	if not pemain_sembunyi and global_position.distance_to(pemain.global_position) <= jarak_kejar:
-		mode = Mode.KEJAR
-		target_world = pemain.global_position
-	else:
-		_last_prior = bayes_prior()
-		_last_likelihood = bayes_likelihood(pemain_sembunyi)
-		_last_posterior = bayes_posterior(_last_prior, _last_likelihood)
-		var lokasi = bayes_tertinggi(_last_posterior)
 
-		if bayes_ada_sinyal(_last_likelihood) and _last_posterior[lokasi] >= 0.70:
-			mode = Mode.SELIDIKI
-			target_world = markers[lokasi]
-		else:
-			mode = Mode.PATROLI
-			target_world = markers[patrol_keys[patrol_index]]
+	_last_prior = bayes_prior()
+	_last_likelihood = bayes_likelihood(pemain_sembunyi)
+	_last_posterior = bayes_posterior(_last_prior, _last_likelihood)
+	var lokasi = bayes_tertinggi(_last_posterior)
+
+	if bayes_ada_sinyal(_last_likelihood) and _last_posterior[lokasi] >= 0.70:
+		mode = Mode.SELIDIKI
+		target_world = markers[lokasi]
+	else:
+		mode = Mode.PATROLI
+		target_world = markers[patrol_keys[patrol_index]]
 
 	path = bfs_path(global_position, cell_to_world(get_nearest_free_cell(world_to_cell(target_world))))
 
